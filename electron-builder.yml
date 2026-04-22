@@ -1,0 +1,44 @@
+appId: com.hermes.webui
+productName: Hermes WebUI
+copyright: Copyright © 2024
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - main.js
+  - preload.js
+  - renderer/**/*
+
+mac:
+  category: public.app-category.productivity
+  target:
+    - dmg
+    - zip
+  icon: renderer/icon.png
+  artifactName: ${productName}-${version}-mac.${ext}
+
+windows:
+  target:
+    - nsis
+    - portable
+  icon: renderer/icon.png
+  artifactName: ${productName}-${version}-win.${ext}
+
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: renderer/icon.png
+  artifactName: ${productName}-${version}-linux.${ext}
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+publish:
+  provider: generic
+  url: https://example.com/releases/
