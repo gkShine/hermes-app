@@ -34,5 +34,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   shell: {
     openExternal: (url) => ipcRenderer.invoke('shell-open-external', url)
+  },
+  clipboard: {
+    writeText: (text) => ipcRenderer.invoke('clipboard-write-text', text),
+    readText: () => ipcRenderer.invoke('clipboard-read-text')
+  },
+  notification: {
+    show: (title, body) => ipcRenderer.invoke('notification-show', title, body),
+    onNotification: (callback) => {
+      ipcRenderer.on('webui-notification', (event, title, body) => callback(title, body));
+    },
+    removeNotificationListener: (callback) => {
+      ipcRenderer.removeListener('webui-notification', callback);
+    }
+  },
+  contextMenu: {
+    show: () => ipcRenderer.send('show-context-menu')
   }
 });

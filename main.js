@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, globalShortcut, ipcMain, nativeImage } = require('electron');
+const { app, BrowserWindow, BrowserView, Menu, Tray, globalShortcut, ipcMain, nativeImage, clipboard, Notification } = require('electron');
 const { spawn, exec } = require('child_process');
 const path = require('path');
 const https = require('https');
@@ -132,6 +132,38 @@ function createWindow(loadConfigPage = false) {
     mainWindow.show();
   });
 
+  // Intercept context menu in webview/iframe
+  mainWindow.webContents.on('context-menu', (event, params) => {
+    const contextMenu = Menu.buildFromTemplate([
+      { label: '复制', accelerator: 'CmdOrCtrl+C', click: () => mainWindow.webContents.executeJavaScript('document.execCommand(\'copy\')') },
+      { label: '粘贴', accelerator: 'CmdOrCtrl+V', click: () => mainWindow.webContents.executeJavaScript('document.execCommand(\'paste\')') },
+      { label: '全选', accelerator: 'CmdOrCtrl+A', click: () => mainWindow.webContents.executeJavaScript('document.execCommand(\'selectAll\')') },
+      { type: 'separator' },
+      { label: '剪切', accelerator: 'CmdOrCtrl+X', click: () => mainWindow.webContents.executeJavaScript('document.execCommand(\'cut\')') },
+      { label: '撤销', accelerator: 'CmdOrCtrl+Z', click: () => mainWindow.webContents.executeJavaScript('document.execCommand(\'undo\')') },
+      { label: '重做', accelerator: 'CmdOrCtrl+Shift+Z', click: () => mainWindow.webContents.executeJavaScript('document.execCommand(\'redo\')') }
+    ]);
+    contextMenu.popup();
+  });
+
+  // Forward keyboard shortcuts to webui iframe
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+
+    const isMeta = input.meta;
+    const isCtrl = input.control;
+    const key = input.key.toLowerCase();
+
+    if ((isMeta || isCtrl) && ['c', 'v', 'a', 'x', 'z'].includes(key)) {
+      event.preventDefault();
+      const cmd = {
+        c: 'copy', v: 'paste', a: 'selectAll', x: 'cut',
+        z: input.shift ? 'redo' : 'undo'
+      }[key];
+      mainWindow.webContents.executeJavaScript(`document.execCommand('${cmd}')`);
+    }
+  });
+
   mainWindow.on('close', (event) => {
     if (!app.isQuitting) {
       event.preventDefault();
@@ -242,6 +274,60 @@ ipcMain.handle('window-load-url', () => {
 
 ipcMain.handle('shell-open-external', (event, url) => {
   require('electron').shell.openExternal(url);
+});
+
+ipcMain.handle('clipboard-write-text', (event, text) => {
+  clipboard.writeText(text);
+});
+
+ipcMain.handle('clipboard-read-text', () => {
+  return clipboard.readText();
+});
+
+ipcMain.handle('notification-show', (event, title, body) => {
+  if (Notification.isSupported()) {
+    const notification = new Notification({
+      title: title || 'Hermes WebUI',
+      body: body || ''
+    });
+    notification.show();
+    return { success: true };
+  }
+  return { success: false, error: 'Notifications not supported' };
+});
+
+// Webview IPC handlers
+ipcMain.on('notification', (event, title, body) => {
+  if (Notification.isSupported()) {
+    const notification = new Notification({
+      title: title || 'Hermes WebUI',
+      body: body || ''
+    });
+    notification.show();
+  }
+});
+
+ipcMain.on('clipboard-write', (event, text) => {
+  clipboard.writeText(text);
+});
+
+ipcMain.on('clipboard-read', (event) => {
+  const text = clipboard.readText();
+  event.sender.sendToHost('clipboard-read-result', text);
+});
+
+// Context menu for webview
+ipcMain.on('show-context-menu', (event) => {
+  const contextMenu = Menu.buildFromTemplate([
+    { label: '复制', accelerator: 'CmdOrCtrl+C', role: 'copy' },
+    { label: '粘贴', accelerator: 'CmdOrCtrl+V', role: 'paste' },
+    { label: '全选', accelerator: 'CmdOrCtrl+A', role: 'selectAll' },
+    { type: 'separator' },
+    { label: '剪切', accelerator: 'CmdOrCtrl+X', role: 'cut' },
+    { label: '撤销', accelerator: 'CmdOrCtrl+Z', role: 'undo' },
+    { label: '重做', accelerator: 'CmdOrCtrl+Shift+Z', role: 'redo' }
+  ]);
+  contextMenu.popup();
 });
 
 ipcMain.handle('install-hermes', async (event) => {
