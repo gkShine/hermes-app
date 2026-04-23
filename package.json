@@ -1,6 +1,6 @@
 {
   "name": "hermes-app",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Hermes App - Desktop shell for Hermes WebUI",
   "main": "main.js",
   "scripts": {
