@@ -17,21 +17,28 @@ mac:
     - dmg
     - zip
   icon: renderer/icon.png
-  artifactName: ${productName}-${version}-mac.${ext}
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+
+darwin:
+  target:
+    - dmg
+    - zip
+  icon: renderer/icon.png
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
 
 windows:
   target:
     - nsis
     - portable
   icon: renderer/icon.png
-  artifactName: ${productName}-${version}-win.${ext}
+  artifactName: ${productName}-${version}-win-${arch}.${ext}
 
 linux:
   target:
     - AppImage
     - deb
   icon: renderer/icon.png
-  artifactName: ${productName}-${version}-linux.${ext}
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
 
 nsis:
   oneClick: false

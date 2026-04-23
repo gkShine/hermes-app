@@ -22,7 +22,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     set: (path) => ipcRenderer.invoke('config-set', path),
     check: () => ipcRenderer.invoke('config-check'),
     startHermes: (path) => ipcRenderer.invoke('start-hermes', path),
-    loadUrl: () => ipcRenderer.invoke('window-load-url')
+    loadUrl: () => ipcRenderer.invoke('window-load-url'),
+    installHermes: () => ipcRenderer.invoke('install-hermes'),
+    checkHermesCLI: () => ipcRenderer.invoke('check-hermes-cli'),
+    onInstallProgress: (callback) => {
+      ipcRenderer.on('install-progress', callback);
+    },
+    removeInstallProgressListener: (callback) => {
+      ipcRenderer.removeListener('install-progress', callback);
+    }
   },
   shell: {
     openExternal: (url) => ipcRenderer.invoke('shell-open-external', url)

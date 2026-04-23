@@ -180,6 +180,54 @@
     .error-msg.show {
       display: block;
     }
+    .progress-container {
+      margin-top: 16px;
+      display: none;
+    }
+    .progress-container.show {
+      display: block;
+    }
+    .progress-bar {
+      height: 6px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #00d4ff 0%, #00ff88 100%);
+      width: 0%;
+      transition: width 0.3s;
+    }
+    .progress-text {
+      margin-top: 8px;
+      font-size: 13px;
+      color: #888;
+    }
+    .agent-warning {
+      background: rgba(255, 170, 0, 0.1);
+      border: 1px solid rgba(255, 170, 0, 0.3);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 24px;
+      text-align: center;
+      display: none;
+    }
+    .agent-warning.show {
+      display: block;
+    }
+    .agent-warning p {
+      color: #ffaa00;
+      font-size: 14px;
+      margin-bottom: 8px;
+    }
+    .agent-warning a {
+      color: #00d4ff;
+      text-decoration: none;
+    }
+    .agent-warning a:hover {
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
@@ -193,6 +241,11 @@
       <h1 data-i18n="title">Hermes App Config</h1>
     </div>
     <p class="subtitle" data-i18n="subtitle">Configure the hermes-webui installation path</p>
+
+    <div class="agent-warning" id="agentWarning">
+      <p data-i18n="agentWarning">Please install Hermes Agent first before using</p>
+      <a href="#" id="agentLink" data-i18n="agentLink">https://get-hermes.ai/</a>
+    </div>
 
     <div class="form-group">
       <label for="hermesPath" data-i18n="pathLabel">hermes-webui Path</label>
@@ -208,7 +261,15 @@
 
     <div class="link-section">
       <p data-i18n="noHermes">Don't have hermes-webui?</p>
-      <button id="downloadBtn" class="btn-link" data-i18n="downloadBtn">Download from GitHub</button>
+      <button id="downloadBtn" class="btn-secondary" data-i18n="downloadBtn">Download from GitHub</button>
+      <button id="installBtn" class="btn-primary" data-i18n="installBtn">Auto Install</button>
+    </div>
+
+    <div id="progressContainer" class="progress-container">
+      <div class="progress-bar">
+        <div id="progressFill" class="progress-fill"></div>
+      </div>
+      <p id="progressText" class="progress-text"></p>
     </div>
   </div>
 
@@ -225,10 +286,18 @@
         saveBtn: 'Save & Launch',
         noHermes: "Don't have hermes-webui?",
         downloadBtn: 'Download from GitHub',
+        installBtn: 'Auto Install',
         checking: 'Checking...',
         launching: 'Launching...',
+        installing: 'Installing...',
+        downloadProgress: 'Downloading: ',
+        extracting: 'Extracting...',
+        installSuccess: 'Installation complete!',
+        installError: 'Installation failed: ',
         enterPath: 'Please enter a path',
-        invalidPath: 'Invalid path, please ensure start.sh exists'
+        invalidPath: 'Invalid path, please ensure start.sh exists',
+        agentWarning: 'Please install Hermes Agent first before using',
+        agentLink: 'https://get-hermes.ai/'
       },
       zh: {
         title: 'Hermes App 配置',
@@ -241,10 +310,18 @@
         saveBtn: '保存并启动',
         noHermes: '还没有 hermes-webui？',
         downloadBtn: '前往 GitHub 下载',
+        installBtn: '自动安装',
         checking: '检查中...',
         launching: '启动中...',
+        installing: '安装中...',
+        downloadProgress: '下载中: ',
+        extracting: '解压中...',
+        installSuccess: '安装完成！',
+        installError: '安装失败: ',
         enterPath: '请输入路径',
-        invalidPath: '路径无效，请确认 start.sh 文件存在'
+        invalidPath: '路径无效，请确认 start.sh 文件存在',
+        agentWarning: '请先安装 Hermes Agent 后再使用',
+        agentLink: 'https://get-hermes.ai/'
       }
     };
 
@@ -257,7 +334,12 @@
     const checkBtn = document.getElementById('checkBtn');
     const saveBtn = document.getElementById('saveBtn');
     const downloadBtn = document.getElementById('downloadBtn');
+    const installBtn = document.getElementById('installBtn');
     const langBtn = document.getElementById('langBtn');
+    const agentLink = document.getElementById('agentLink');
+    const progressContainer = document.getElementById('progressContainer');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
 
     function setLang(lang) {
       currentLang = lang;
@@ -289,6 +371,13 @@
         hermesPathInput.value = config.hermesPath;
         updateStatus(config.hermesPathValid);
       }
+
+      // Check if hermes CLI is installed
+      const cliResult = await window.electronAPI.config.checkHermesCLI();
+      if (!cliResult.hermesCLIExists) {
+        document.getElementById('agentWarning').classList.add('show');
+      }
+
       // Auto detect language
       const browserLang = navigator.language.toLowerCase();
       setLang(browserLang.startsWith('zh') ? 'zh' : 'en');
@@ -339,6 +428,60 @@
 
     downloadBtn.addEventListener('click', () => {
       window.electronAPI.shell.openExternal('https://github.com/nesquena/hermes-webui');
+    });
+
+    agentLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      window.electronAPI.shell.openExternal('https://get-hermes.ai/');
+    });
+
+    installBtn.addEventListener('click', async () => {
+      installBtn.disabled = true;
+      downloadBtn.disabled = true;
+      checkBtn.disabled = true;
+      saveBtn.disabled = true;
+      errorMsg.classList.remove('show');
+      progressContainer.classList.add('show');
+      progressFill.style.width = '0%';
+      progressText.textContent = i18n[currentLang].downloading;
+
+      // Listen for progress updates BEFORE starting install
+      const progressHandler = (progress) => {
+        progressFill.style.width = progress + '%';
+        progressText.textContent = i18n[currentLang].downloadProgress + progress + '%';
+      };
+      window.electronAPI.config.onInstallProgress(progressHandler);
+
+      const result = await window.electronAPI.config.installHermes();
+
+      // Remove listener after install completes
+      window.electronAPI.config.removeInstallProgressListener(progressHandler);
+
+      if (result.success) {
+        progressText.textContent = i18n[currentLang].installSuccess;
+        hermesPathInput.value = result.installPath;
+
+        // Check if path is valid
+        const configResult = await window.electronAPI.config.check();
+        updateStatus(configResult.hermesPathValid);
+
+        // Auto launch after short delay
+        setTimeout(async () => {
+          const startResult = await window.electronAPI.config.startHermes(result.installPath);
+          if (startResult.success) {
+            await window.electronAPI.config.loadUrl();
+          }
+        }, 500);
+      } else {
+        progressContainer.classList.remove('show');
+        errorMsg.textContent = i18n[currentLang].installError + result.error;
+        errorMsg.classList.add('show');
+      }
+
+      installBtn.disabled = false;
+      downloadBtn.disabled = false;
+      checkBtn.disabled = false;
+      saveBtn.disabled = false;
     });
 
     loadConfig();

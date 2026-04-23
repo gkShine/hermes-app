@@ -1,15 +1,15 @@
 {
   "name": "hermes-app",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Hermes App - Desktop shell for Hermes WebUI",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "dev": "electron . --enable-logging",
     "build": "electron-builder",
-    "build:mac": "electron-builder --mac",
+    "build:mac": "electron-builder --mac --x64 && electron-builder --mac --arm64",
     "build:win": "electron-builder --win",
-    "build:linux": "electron-builder --linux",
+    "build:linux": "electron-builder --linux --x64 && electron-builder --linux --arm64",
     "postinstall": "electron-builder install-app-deps"
   },
   "devDependencies": {
@@ -39,7 +39,7 @@
         "zip"
       ],
       "icon": "build/icon.icns",
-      "artifactName": "${productName}-${version}-mac.${ext}"
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}"
     },
     "win": {
       "target": [
@@ -47,7 +47,7 @@
         "portable"
       ],
       "icon": "build/icon.ico",
-      "artifactName": "${productName}-${version}-win.${ext}"
+      "artifactName": "${productName}-${version}-win-${arch}.${ext}"
     },
     "linux": {
       "target": [
@@ -55,7 +55,7 @@
         "deb"
       ],
       "icon": "build/icon.png",
-      "artifactName": "${productName}-${version}-linux.${ext}"
+      "artifactName": "${productName}-${version}-linux-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,

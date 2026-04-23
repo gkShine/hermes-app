@@ -12,12 +12,21 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-latest
+          - os: macos-13
             platform: darwin
+            arch: x64
+          - os: macos-14
+            platform: darwin
+            arch: arm64
           - os: windows-latest
             platform: win32
+            arch: x64
           - os: ubuntu-latest
             platform: linux
+            arch: x64
+          - os: ubuntu-latest
+            platform: linux
+            arch: arm64
 
     steps:
       - name: Checkout
@@ -48,7 +57,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.platform }}-artifacts
+          name: ${{ matrix.platform }}-${{ matrix.arch }}-artifacts
           path: |
             dist/*.dmg
             dist/*.zip
@@ -72,17 +81,18 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: true
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/darwin-artifacts/*.dmg
-            artifacts/darwin-artifacts/*.zip
-            artifacts/win32-artifacts/*.exe
-            artifacts/win32-artifacts/*.msi
-            artifacts/linux-artifacts/*.AppImage
-            artifacts/linux-artifacts/*.deb
+            artifacts/*.dmg
+            artifacts/*.zip
+            artifacts/*.exe
+            artifacts/*.msi
+            artifacts/*.AppImage
+            artifacts/*.deb
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
