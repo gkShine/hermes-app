@@ -9,6 +9,12 @@ const os = require('os');
 const zlib = require('zlib');
 const Store = require('electron-store');
 
+// 单实例锁定，防止多开
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+}
+
 const store = new Store({
   defaults: {
     hermesPath: ''
@@ -107,6 +113,12 @@ function stopHermes() {
 }
 
 function createWindow(loadConfigPage = false) {
+  if (mainWindow) {
+    mainWindow.show();
+    mainWindow.focus();
+    return;
+  }
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -142,18 +154,31 @@ function createWindow(loadConfigPage = false) {
 
 function createTray() {
   const iconPath = path.join(__dirname, 'renderer', 'icon.png');
-  tray = new Tray(nativeImage.createEmpty());
-  tray.setToolTip('Hermes WebUI');
+  const icon = nativeImage.createFromPath(iconPath);
+  tray = new Tray(icon.resize({ width: 16, height: 16 }));
+  tray.setToolTip('Hermes App');
   
   const contextMenu = Menu.buildFromTemplate([
-    { label: '显示窗口', click: () => mainWindow.show() },
+    { label: '显示窗口', click: () => showWindow() },
     { label: '隐藏窗口', click: () => mainWindow.hide() },
     { type: 'separator' },
     { label: '退出', click: () => { app.isQuitting = true; app.quit(); } }
   ]);
   
   tray.setContextMenu(contextMenu);
-  tray.on('click', () => mainWindow.show());
+  tray.on('click', () => showWindow());
+}
+
+function showWindow() {
+  if (!mainWindow) {
+    createWindow();
+  } else {
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.show();
+    mainWindow.focus();
+  }
 }
 
 function createMenu() {
@@ -190,9 +215,14 @@ function createMenu() {
 
 function registerShortcuts() {
   globalShortcut.register('CmdOrCtrl+Shift+H', () => {
-    mainWindow.isVisible() ? mainWindow.hide() : mainWindow.show();
+    mainWindow.isVisible() ? mainWindow.hide() : showWindow();
   });
 }
+
+// 处理第二个实例启动
+app.on('second-instance', (event, commandLine, workingDirectory) => {
+  showWindow();
+});
 
 // IPC handlers for config
 ipcMain.handle('config-get', () => {
@@ -382,7 +412,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  showWindow();
 });
 
 app.on('will-quit', () => {

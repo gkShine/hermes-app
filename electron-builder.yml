@@ -1,5 +1,5 @@
 appId: com.hermes.webui
-productName: Hermes WebUI
+productName: Hermes App
 copyright: Copyright © 2024
 
 directories:
@@ -11,33 +11,31 @@ files:
   - preload.js
   - renderer/**/*
 
+asar: true
+
 mac:
   category: public.app-category.productivity
-  target:
-    - dmg
-    - zip
-  icon: renderer/icon.png
+  target: zip
+  icon: build/icon.icns
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
 
 darwin:
-  target:
-    - dmg
-    - zip
-  icon: renderer/icon.png
+  target: zip
+  icon: build/icon.icns
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
 
 windows:
   target:
     - nsis
     - portable
-  icon: renderer/icon.png
+  icon: build/icon.ico
   artifactName: ${productName}-${version}-win-${arch}.${ext}
 
 linux:
   target:
     - AppImage
     - deb
-  icon: renderer/icon.png
+  icon: build/icon_512.png
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
 
 nsis:
