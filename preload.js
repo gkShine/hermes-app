@@ -19,7 +19,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   config: {
     get: () => ipcRenderer.invoke('config-get'),
-    set: (path) => ipcRenderer.invoke('config-set', path),
+    set: (data) => ipcRenderer.invoke('config-set', data),
     check: () => ipcRenderer.invoke('config-check'),
     startHermes: (path) => ipcRenderer.invoke('start-hermes', path),
     loadUrl: () => ipcRenderer.invoke('window-load-url'),

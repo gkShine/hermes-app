@@ -103,6 +103,11 @@
       border: 1px solid rgba(255, 68, 68, 0.3);
       color: #ff4444;
     }
+    .hint {
+      margin-top: 6px;
+      color: #888;
+      font-size: 12px;
+    }
     .btn-group {
       display: flex;
       gap: 12px;
@@ -228,6 +233,11 @@
     .agent-warning a:hover {
       text-decoration: underline;
     }
+    .divider {
+      height: 1px;
+      background: rgba(255,255,255,0.1);
+      margin: 24px 0;
+    }
   </style>
 </head>
 <body>
@@ -252,6 +262,14 @@
       <input type="text" id="hermesPath" placeholder="/Users/username/Work/hermes-webui">
       <div id="pathStatus" class="path-status"></div>
       <div id="errorMsg" class="error-msg"></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="form-group">
+      <label for="githubProxy" data-i18n="proxyLabel">GitHub Proxy Address</label>
+      <input type="text" id="githubProxy" placeholder="https://ghfast.top/">
+      <div class="hint" data-i18n="proxyHint">Proxy for downloading from GitHub, leave empty to use direct connection</div>
     </div>
 
     <div class="btn-group">
@@ -282,6 +300,8 @@
         pathPlaceholder: '/Users/username/Work/hermes-webui',
         pathValid: '✓ Path is valid',
         pathInvalid: '✗ Path invalid or start.sh not found',
+        proxyLabel: 'GitHub Proxy',
+        proxyHint: 'Proxy for GitHub downloads, keep default if you have network issues',
         checkBtn: 'Check Path',
         saveBtn: 'Save & Launch',
         noHermes: "Don't have hermes-webui?",
@@ -306,6 +326,8 @@
         pathPlaceholder: '/Users/用户名/Work/hermes-webui',
         pathValid: '✓ 路径有效',
         pathInvalid: '✗ 路径无效或 start.sh 不存在',
+        proxyLabel: 'GitHub 代理地址',
+        proxyHint: 'GitHub下载代理，网络访问问题时使用，默认即可',
         checkBtn: '检查路径',
         saveBtn: '保存并启动',
         noHermes: '还没有 hermes-webui？',
@@ -329,6 +351,7 @@
     let currentValid = false;
 
     const hermesPathInput = document.getElementById('hermesPath');
+    const githubProxyInput = document.getElementById('githubProxy');
     const pathStatus = document.getElementById('pathStatus');
     const errorMsg = document.getElementById('errorMsg');
     const checkBtn = document.getElementById('checkBtn');
@@ -371,6 +394,9 @@
         hermesPathInput.value = config.hermesPath;
         updateStatus(config.hermesPathValid);
       }
+      if (config.githubProxy) {
+        githubProxyInput.value = config.githubProxy;
+      }
 
       // Check if hermes CLI is installed
       const cliResult = await window.electronAPI.config.checkHermesCLI();
@@ -394,7 +420,10 @@
       checkBtn.innerHTML = '<span class="spinner"></span>' + i18n[currentLang].checking;
       checkBtn.disabled = true;
 
-      const result = await window.electronAPI.config.set(path);
+      const result = await window.electronAPI.config.set({
+        hermesPath: path,
+        githubProxy: githubProxyInput.value.trim()
+      });
       updateStatus(result.hermesPathValid);
 
       checkBtn.textContent = i18n[currentLang].checkBtn;
@@ -403,6 +432,7 @@
 
     saveBtn.addEventListener('click', async () => {
       const path = hermesPathInput.value.trim();
+      const proxy = githubProxyInput.value.trim();
       if (!path) {
         errorMsg.textContent = i18n[currentLang].enterPath;
         errorMsg.classList.add('show');
@@ -411,6 +441,11 @@
       errorMsg.classList.remove('show');
       saveBtn.innerHTML = '<span class="spinner"></span>' + i18n[currentLang].launching;
       saveBtn.disabled = true;
+
+      await window.electronAPI.config.set({
+        hermesPath: path,
+        githubProxy: proxy
+      });
 
       const result = await window.electronAPI.config.startHermes(path);
 
