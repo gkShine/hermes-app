@@ -30,6 +30,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
     removeInstallProgressListener: (callback) => {
       ipcRenderer.removeListener('install-progress', callback);
+    },
+    onInstallLog: (callback) => {
+      ipcRenderer.on('install-log', callback);
+    },
+    removeInstallLogListener: (callback) => {
+      ipcRenderer.removeListener('install-log', callback);
     }
   },
   shell: {

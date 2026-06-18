@@ -238,6 +238,46 @@
       background: rgba(255,255,255,0.1);
       margin: 24px 0;
     }
+    .log-container {
+      margin-top: 16px;
+      display: none;
+      max-height: 200px;
+      overflow-y: auto;
+      background: rgba(0, 0, 0, 0.5);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .log-container.show {
+      display: block;
+    }
+    .log-container h4 {
+      font-size: 13px;
+      color: #ccc;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .log-content {
+      font-family: monospace;
+      font-size: 11px;
+      line-height: 1.5;
+      color: #aaa;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .log-line {
+      margin: 2px 0;
+    }
+    .log-line.error {
+      color: #ff6666;
+    }
+    .log-line.info {
+      color: #66ccff;
+    }
+    .log-line.success {
+      color: #66ff99;
+    }
   </style>
 </head>
 <body>
@@ -289,6 +329,11 @@
       </div>
       <p id="progressText" class="progress-text"></p>
     </div>
+
+    <div id="logContainer" class="log-container">
+      <h4 data-i18n="logTitle">Installation Log</h4>
+      <div id="logContent" class="log-content"></div>
+    </div>
   </div>
 
   <script>
@@ -296,7 +341,7 @@
       en: {
         title: 'Hermes App Config',
         subtitle: 'Configure the hermes-webui installation path',
-        pathLabel: 'hermes-webui Path',
+        pathLabel: 'hermes-web Path',
         pathPlaceholder: '/Users/username/Work/hermes-webui',
         pathValid: '✓ Path is valid',
         pathInvalid: '✗ Path invalid or start.sh not found',
@@ -317,7 +362,8 @@
         enterPath: 'Please enter a path',
         invalidPath: 'Invalid path, please ensure start.sh exists',
         agentWarning: 'Please install Hermes Agent first before using',
-        agentLink: 'https://get-hermes.ai/'
+        agentLink: 'https://get-hermes.ai/',
+        logTitle: 'Installation Log'
       },
       zh: {
         title: 'Hermes App 配置',
@@ -343,7 +389,8 @@
         enterPath: '请输入路径',
         invalidPath: '路径无效，请确认 start.sh 文件存在',
         agentWarning: '请先安装 Hermes Agent 后再使用',
-        agentLink: 'https://get-hermes.ai/'
+        agentLink: 'https://get-hermes.ai/',
+        logTitle: '安装日志'
       }
     };
 
@@ -363,6 +410,8 @@
     const progressContainer = document.getElementById('progressContainer');
     const progressFill = document.getElementById('progressFill');
     const progressText = document.getElementById('progressText');
+    const logContainer = document.getElementById('logContainer');
+    const logContent = document.getElementById('logContent');
 
     function setLang(lang) {
       currentLang = lang;
@@ -386,6 +435,18 @@
       currentValid = valid;
       pathStatus.className = 'path-status ' + (valid ? 'valid' : 'invalid');
       pathStatus.textContent = message || (valid ? i18n[currentLang].pathValid : i18n[currentLang].pathInvalid);
+    }
+
+    function addLog(message, type = 'info') {
+      const line = document.createElement('div');
+      line.className = 'log-line ' + type;
+      line.textContent = message;
+      logContent.appendChild(line);
+      logContainer.scrollTop = logContent.scrollHeight;
+    }
+
+    function clearLog() {
+      logContent.innerHTML = '';
     }
 
     async function loadConfig() {
@@ -477,23 +538,31 @@
       saveBtn.disabled = true;
       errorMsg.classList.remove('show');
       progressContainer.classList.add('show');
+      logContainer.classList.add('show');
       progressFill.style.width = '0%';
       progressText.textContent = i18n[currentLang].downloading;
+      clearLog();
 
       // Listen for progress updates BEFORE starting install
       const progressHandler = (progress) => {
         progressFill.style.width = progress + '%';
         progressText.textContent = i18n[currentLang].downloadProgress + progress + '%';
       };
+      const logHandler = (data) => {
+        addLog(data.message, data.type);
+      };
       window.electronAPI.config.onInstallProgress(progressHandler);
+      window.electronAPI.config.onInstallLog(logHandler);
 
       const result = await window.electronAPI.config.installHermes();
 
       // Remove listener after install completes
       window.electronAPI.config.removeInstallProgressListener(progressHandler);
+      window.electronAPI.config.removeInstallLogListener(logHandler);
 
       if (result.success) {
         progressText.textContent = i18n[currentLang].installSuccess;
+        addLog(i18n[currentLang].installSuccess, 'success');
         hermesPathInput.value = result.installPath;
 
         // Check if path is valid
@@ -511,6 +580,7 @@
         progressContainer.classList.remove('show');
         errorMsg.textContent = i18n[currentLang].installError + result.error;
         errorMsg.classList.add('show');
+        addLog(result.error, 'error');
       }
 
       installBtn.disabled = false;

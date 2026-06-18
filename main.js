@@ -86,6 +86,8 @@ function getLatestReleaseInfo(callback) {
     timeout: 10000
   };
 
+  sendLog(`Checking latest release from GitHub...`, 'info');
+
   const req = https.get(options, (res) => {
     let data = '';
     res.on('data', (chunk) => {
@@ -94,25 +96,37 @@ function getLatestReleaseInfo(callback) {
     res.on('end', () => {
       try {
         const release = JSON.parse(data);
+        sendLog(`Got latest release: ${release.tag_name}`, 'success');
         callback(null, {
           version: release.tag_name,
           zipUrl: release.tarball_url
         });
       } catch (err) {
+        sendLog(`Failed to parse response: ${err.message}`, 'error');
         callback(err, null);
       }
     });
   });
 
-  req.on('error', (err) => callback(err, null));
+  req.on('error', (err) => {
+    sendLog(`Request failed: ${err.message}`, 'error');
+    callback(err, null);
+  });
   req.on('timeout', () => { req.destroy(); callback(new Error('timeout'), null); });
   req.end();
+}
+
+function sendLog(message, type = 'info') {
+  console.log('[Hermes]', message);
+  if (mainWindow && mainWindow.webContents) {
+    mainWindow.webContents.send('install-log', { message, type });
+  }
 }
 
 function startHermes(callback) {
   const hermesPath = getHermesPath();
   const hermesScript = getHermesScript();
-  console.log('[Hermes] Starting hermes-webui from:', hermesPath);
+  sendLog(`Starting hermes-webui from: ${hermesPath}`, 'info');
   hermesProcess = spawn('bash', [hermesScript], {
     cwd: hermesPath,
     detached: true,
@@ -129,13 +143,13 @@ function startHermes(callback) {
   const waitForHermes = () => {
     checkHermesRunning((running) => {
       if (running) {
-        console.log('[Hermes] hermes-webui is ready!');
+        sendLog('hermes-webui is ready!', 'success');
         callback(true);
       } else if (attempts < maxAttempts) {
         attempts++;
         setTimeout(waitForHermes, 1000);
       } else {
-        console.log('[Hermes] Timeout waiting for hermes-webui');
+        sendLog('Timeout waiting for hermes-webui', 'error');
         callback(false);
       }
     });
@@ -147,12 +161,12 @@ function startHermes(callback) {
 function stopHermes() {
   if (!hermesStartedByUs) return;
   
-  console.log('[Hermes] Stopping hermes-webui...');
+  sendLog('Stopping hermes-webui...', 'info');
   
   // Find and kill the python server process started by start.sh
   exec('pkill -f "python.*server.py" || true', (err) => {
-    if (err) console.log('[Hermes] pkill error:', err.message);
-    else console.log('[Hermes] hermes-webui stopped');
+    if (err) sendLog('pkill error: ' + err.message, 'error');
+    else sendLog('hermes-webui stopped', 'success');
   });
 }
 
@@ -230,8 +244,6 @@ function createMenu() {
     {
       label: '文件',
       submenu: [
-        { label: '刷新', accelerator: 'CmdOrCtrl+R', click: () => mainWindow.reload() },
-        { type: 'separator' },
         { label: '设置', click: () => {
           showWindow();
           mainWindow.loadFile(path.join(__dirname, 'renderer', 'config.html'));
@@ -240,6 +252,7 @@ function createMenu() {
           checkAndUpdateHermes();
         } },
         { type: 'separator' },
+        { label: '刷新', accelerator: 'CmdOrCtrl+R', click: () => mainWindow.reload() },
         { label: '开发者工具', accelerator: 'CmdOrCtrl+Shift+I', click: () => mainWindow.webContents.openDevTools() },
         { type: 'separator' },
         { label: '退出', accelerator: 'CmdOrCtrl+Q', click: () => { app.isQuitting = true; app.quit(); } }
@@ -279,6 +292,9 @@ app.on('second-instance', (event, commandLine, workingDirectory) => {
 
 async function checkAndUpdateHermes() {
   showWindow();
+  if (mainWindow.webContents.getURL().indexOf('config.html') === -1) {
+    mainWindow.loadFile(path.join(__dirname, 'renderer', 'config.html'));
+  }
 
   const result = await dialog.showMessageBox(mainWindow, {
     type: 'question',
@@ -308,6 +324,8 @@ async function checkAndUpdateHermes() {
       currentVersion = 'unknown';
     }
 
+    sendLog(`Current version: ${currentVersion}, latest version: ${latest.version}`, 'info');
+
     if (currentVersion === latest.version) {
       dialog.showMessageBox(mainWindow, {
         type: 'info',
@@ -329,7 +347,7 @@ async function checkAndUpdateHermes() {
     }
 
     // 开始更新
-    downloadAndInstallHermes(latest.zipUrl, latest.version);
+    await downloadAndInstallHermes(latest.zipUrl, latest.version);
   });
 }
 
@@ -338,17 +356,22 @@ async function downloadAndInstallHermes(zipUrl, version) {
   const proxyUrl = getGithubProxy();
   const downloadUrl = proxyUrl + zipUrl;
 
-  console.log('[Hermes] Starting update to version:', version);
-  console.log('[Hermes] Download url:', downloadUrl);
+  sendLog(`Starting update to version: ${version}`, 'info');
+  sendLog(`Download url: ${downloadUrl}`, 'info');
 
   // Create .hermes directory if it doesn't exist
   const hermesDir = path.join(os.homedir(), '.hermes');
   try {
     await fsPromises.mkdir(hermesDir, { recursive: true });
+    sendLog(`Created directory: ${hermesDir}`, 'success');
   } catch (err) {
     if (err.code !== 'EEXIST') {
-      dialog.showErrorBox('安装失败', 'Failed to create directory: ' + err.message);
+      const msg = 'Failed to create directory: ' + err.message;
+      sendLog(msg, 'error');
+      dialog.showErrorBox('安装失败', msg);
       return;
+    } else {
+      sendLog(`Directory ${hermesDir} already exists`, 'info');
     }
   }
 
@@ -357,9 +380,11 @@ async function downloadAndInstallHermes(zipUrl, version) {
 
   // Remove existing hermes-webui folder if it exists
   try {
+    sendLog(`Removing old directory: ${installPath}`, 'info');
     await fsPromises.rm(installPath, { recursive: true, force: true });
+    sendLog('Removed old directory successfully', 'success');
   } catch (err) {
-    console.log('[Hermes] Could not remove existing folder:', err.message);
+    sendLog('Could not remove existing folder: ' + err.message, 'error');
   }
 
   const zipPath = path.join(hermesDir, 'temp.tar.gz');
@@ -372,18 +397,22 @@ async function downloadAndInstallHermes(zipUrl, version) {
     if (response.statusCode !== 200) {
       file.close();
       fs.unlinkSync(zipPath);
-      dialog.showErrorBox('下载失败', 'Download failed with status: ' + response.statusCode);
+      const msg = 'Download failed with status: ' + response.statusCode;
+      sendLog(msg, 'error');
+      dialog.showErrorBox('下载失败', msg);
       return;
     }
 
+    sendLog(`Starting download, total size: ${Math.round(parseInt(response.headers['content-length'], 10) / 1024 / 1024)}MB`, 'info');
     totalBytes = parseInt(response.headers['content-length'], 10);
 
     response.on('data', (chunk) => {
       receivedBytes += chunk.length;
-      if (totalBytes) {
+      sendLog(`Received ${Math.round(receivedBytes / 1024)}KB / ${Math.round(totalBytes / 1024)}KB`, 'info');
+      if (totalBytes && mainWindow) {
         const progress = Math.round((receivedBytes / totalBytes) * 100);
         if (mainWindow) {
-          mainWindow.webContents.send('update-progress', progress);
+          mainWindow.webContents.send('install-progress', progress);
         }
       }
     });
@@ -392,7 +421,7 @@ async function downloadAndInstallHermes(zipUrl, version) {
 
     file.on('finish', async () => {
       file.close();
-      console.log('[Hermes] Download complete, extracting...');
+      sendLog('Download complete, extracting...', 'info');
 
       try {
         // Extract tar.gz
@@ -400,6 +429,7 @@ async function downloadAndInstallHermes(zipUrl, version) {
 
         extractor.on('close', async (code) => {
           await fsPromises.unlink(zipPath);
+          sendLog('Extraction complete with code: ' + code, code === 0 ? 'success' : 'error');
 
           if (code === 0) {
             // The extracted folder is nesquena-hermes-webui-xxxxxxx (commit hash)
@@ -414,17 +444,29 @@ async function downloadAndInstallHermes(zipUrl, version) {
             }
 
             if (!extractedDir || !fs.existsSync(extractedDir)) {
-              dialog.showErrorBox('安装失败', 'Cannot find extracted directory');
+              const msg = 'Cannot find extracted directory';
+              sendLog(msg, 'error');
+              dialog.showErrorBox('安装失败', msg);
               return;
             }
 
+            sendLog(`Found extracted directory: ${extractedDir}`, 'info');
+
             // Rename to hermes-webui
-            await fsPromises.rename(extractedDir, installPath);
+            try {
+              await fsPromises.rename(extractedDir, installPath);
+              sendLog(`Renamed to ${installPath}`, 'success');
+            } catch (err) {
+              sendLog(`Rename error: ${err.message}, trying replace`, 'warning');
+              await fsPromises.rm(installPath, { recursive: true, force: true });
+              await fsPromises.rename(extractedDir, installPath);
+            }
 
             // Save version file
             await fsPromises.writeFile(path.join(installPath, 'VERSION'), version);
+            sendLog(`Saved version file: ${version}`, 'success');
 
-            console.log('[Hermes] Update complete!');
+            sendLog('Update complete!', 'success');
             dialog.showMessageBox(mainWindow, {
               type: 'info',
               title: '更新完成',
@@ -433,7 +475,7 @@ async function downloadAndInstallHermes(zipUrl, version) {
 
             // Restart hermes
             startHermes(() => {
-              console.log('[Hermes] Restart complete');
+              sendLog('Restart complete', 'success');
               mainWindow.loadURL(WEBUI_URL);
             });
           } else {
@@ -443,17 +485,23 @@ async function downloadAndInstallHermes(zipUrl, version) {
 
         extractor.on('error', async (err) => {
           await fsPromises.unlink(zipPath).catch(() => {});
-          dialog.showErrorBox('解压错误', 'Extraction error: ' + err.message);
+          const msg = 'Extraction error: ' + err.message;
+          sendLog(msg, 'error');
+          dialog.showErrorBox('解压错误', msg);
         });
       } catch (err) {
         await fsPromises.unlink(zipPath).catch(() => {});
-        dialog.showErrorBox('处理错误', 'Processing error: ' + err.message);
+        const msg = 'Processing error: ' + err.message;
+        sendLog(msg, 'error');
+        dialog.showErrorBox('处理错误', msg);
       }
     });
   }).on('error', async (err) => {
     file.close();
     await fsPromises.unlink(zipPath).catch(() => {});
-    dialog.showErrorBox('下载错误', 'Download error: ' + err.message);
+    const msg = 'Download error: ' + err.message;
+    sendLog(msg, 'error');
+    dialog.showErrorBox('下载错误', msg);
   });
 }
 
@@ -519,10 +567,12 @@ ipcMain.handle('shell-open-external', (event, url) => {
 
 ipcMain.handle('install-hermes', async (event) => {
   console.log('[Hermes] Starting fresh installation');
+  sendLog('Starting fresh installation', 'info');
 
   getLatestReleaseInfo(async (err, latest) => {
     if (err) {
       event.reply('install-error', '获取最新版本失败: ' + err.message);
+      sendLog('Failed to get latest release: ' + err.message, 'error');
       return;
     }
 
