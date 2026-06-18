@@ -17,6 +17,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     quit: () => ipcRenderer.invoke('app-quit'),
     getVersion: () => ipcRenderer.invoke('app-version')
   },
+  settings: {
+    get: () => ipcRenderer.invoke('settings-get'),
+    checkPath: (path) => ipcRenderer.invoke('settings-check-path', path),
+    save: (data) => ipcRenderer.invoke('settings-save', data)
+  },
+  log: {
+    getLogs: () => ipcRenderer.invoke('log-get-logs'),
+    clear: () => ipcRenderer.invoke('log-clear'),
+    onNewLog: (callback) => {
+      ipcRenderer.on('new-log', callback);
+    }
+  },
   config: {
     get: () => ipcRenderer.invoke('config-get'),
     set: (data) => ipcRenderer.invoke('config-set', data),
