@@ -1,6 +1,6 @@
 {
   "name": "hermes-app",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "description": "Hermes App - Desktop shell for Hermes WebUI",
   "main": "main.js",
   "scripts": {
@@ -53,7 +53,7 @@
         "AppImage",
         "deb"
       ],
-      "icon": "build/icon.png",
+      "icon": "build/icon_512.png",
       "artifactName": "${productName}-${version}-linux-${arch}.${ext}"
     },
     "nsis": {
