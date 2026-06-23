@@ -1,4 +1,5 @@
 const { ipcMain } = require('electron');
+const { exec } = require('node:child_process')
 const { 
   checkHermesPathValid, 
   checkHermesPathValidForSettings,
@@ -9,6 +10,8 @@ const {
 } = require('./config');
 
 const { getLatestReleaseInfo, downloadAndInstallHermes } = require('./github');
+
+let pendingLatest = null;
 
 function registerIpcHandlers() {
   // Settings handlers
@@ -106,8 +109,10 @@ function registerIpcHandlers() {
   });
 
   ipcMain.handle('window-load-url', () => {
+    const ui = require('./ui');
+    const mainWindow = ui.getMainWindow();
     if (mainWindow) {
-      mainWindow.loadURL(WEBUI_URL);
+      mainWindow.loadURL(process.env.HERMES_WEBUI_URL || 'http://localhost:8787');
     }
   });
 
@@ -117,18 +122,91 @@ function registerIpcHandlers() {
 
   ipcMain.handle('install-hermes', async (event) => {
     const ui = require('./ui');
-    ui.sendLog('Starting fresh installation', 'info');
-    getLatestReleaseInfo(async (err, latest) => {
-      if (err) {
-        event.reply('install-error', `获取最新版本失败: ${err.message}`);
-        ui.sendLog(`Failed to get latest release: ${err.message}`, 'error');
-        return;
-      }
+    const os = require('os');
+    const { dialog } = require('electron');
+    const mainWindow = ui.getMainWindow();
 
-      ui.openLogWindow();
-      const installPath = require('path').join(os.homedir(), '.hermes', 'hermes-webui');
-      await downloadAndInstallHermes(latest.zipUrl, latest.version, installPath, dialog, mainWindow, ui.sendLog);
+    ui.sendLog('Starting fresh installation', 'info');
+
+    return new Promise((resolve) => {
+      getLatestReleaseInfo(async (err, latest) => {
+        if (err) {
+          ui.sendLog(`Failed to get latest release: ${err.message}`, 'error');
+          ui.openLogWindow();
+          resolve({ success: false, error: `获取最新版本失败: ${err.message}` });
+          return;
+        }
+
+        const installPath = require('path').join(os.homedir(), '.hermes', 'hermes-webui');
+        const result = await downloadAndInstallHermes(latest.zipUrl, latest.version, installPath, dialog, mainWindow, ui.sendLog);
+
+        if (result.success) {
+          set('hermesPath', installPath);
+        } else {
+          ui.openLogWindow();
+        }
+        resolve(result);
+      });
     });
+  });
+
+  // Update flow (driven by the update window UI)
+  ipcMain.handle('update-check', () => {
+    const ui = require('./ui');
+    return new Promise((resolve) => {
+      getLatestReleaseInfo(async (err, latest) => {
+        if (err) {
+          ui.sendLog(`Failed to get latest release: ${err.message}`, 'error');
+          resolve({ ok: false, error: `获取最新版本失败: ${err.message}` });
+          return;
+        }
+
+        let currentVersion = 'unknown';
+        try {
+          const fs = require('fs');
+          const versionPath = require('path').join(getHermesPath(), 'VERSION');
+          if (fs.existsSync(versionPath)) {
+            currentVersion = (await fs.promises.readFile(versionPath, 'utf8')).trim();
+          }
+        } catch (e) {
+          currentVersion = 'unknown';
+        }
+
+        pendingLatest = latest;
+        ui.sendLog(`Current version: ${currentVersion}, latest version: ${latest.version}`, 'info');
+        resolve({
+          ok: true,
+          hasUpdate: currentVersion !== latest.version,
+          currentVersion,
+          latestVersion: latest.version
+        });
+      });
+    });
+  });
+
+  ipcMain.handle('update-download', async () => {
+    const ui = require('./ui');
+    if (!pendingLatest) {
+      return { success: false, error: '无待更新版本，请先检查更新' };
+    }
+    const installPath = require('path').join(require('os').homedir(), '.hermes', 'hermes-webui');
+    const result = await downloadAndInstallHermes(pendingLatest.zipUrl, pendingLatest.version, installPath, null, null, ui.sendLog);
+    if (result.success) {
+      set('hermesPath', installPath);
+    }
+    return result;
+  });
+
+  ipcMain.handle('update-restart', () => {
+    const ui = require('./ui');
+    ui.startHermes(() => {
+      ui.sendLog('Restart complete', 'success');
+      const mainWindow = ui.getMainWindow();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.loadURL(process.env.HERMES_WEBUI_URL || 'http://localhost:8787');
+      }
+    });
+    return { success: true };
   });
 }
 

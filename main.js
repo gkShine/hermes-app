@@ -1,11 +1,14 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, globalShortcut } = require('electron');
 const { registerIpcHandlers } = require('./modules/ipc');
-const { 
-  createWindow, 
-  createTray, 
-  createMenu, 
-  registerShortcuts, 
-  showWindow 
+const {
+  createWindow,
+  createTray,
+  createMenu,
+  registerShortcuts,
+  showWindow,
+  checkHermesRunning,
+  startHermes,
+  stopHermes
 } = require('./modules/ui');
 
 // 单实例锁定

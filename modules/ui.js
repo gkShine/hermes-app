@@ -1,14 +1,17 @@
-const { app, BrowserWindow, Menu, Tray, globalShortcut, dialog } = require('electron');
+const { app, BrowserWindow, Menu, Tray, nativeImage, globalShortcut } = require('electron');
 const path = require('path');
+const http = require('http');
+const { spawn, exec } = require('child_process');
 const { checkHermesPathValid, getHermesPath } = require('./config');
-const { getLatestReleaseInfo, downloadAndInstallHermes } = require('./github');
 
 let mainWindow = null;
 let settingsWindow = null;
 let logWindow = null;
+let updateWindow = null;
 let tray = null;
 let hermesProcess = null;
 let hermesStartedByUs = false;
+let installLogs = [];
 
 const WEBUI_URL = process.env.HERMES_WEBUI_URL || 'http://localhost:8787';
 
@@ -61,7 +64,7 @@ function openSettingsWindow() {
 
   settingsWindow = new BrowserWindow({
     width: 600,
-    height: 500,
+    height: 560,
     minWidth: 500,
     minHeight: 400,
     title: 'Settings',
@@ -110,6 +113,35 @@ function openLogWindow() {
   });
 }
 
+function openUpdateWindow() {
+  if (updateWindow && !updateWindow.isDestroyed()) {
+    updateWindow.show();
+    updateWindow.focus();
+    return;
+  }
+
+  updateWindow = new BrowserWindow({
+    width: 480,
+    height: 420,
+    resizable: false,
+    title: 'Update',
+    parent: mainWindow || undefined,
+    modal: !!mainWindow,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true
+    }
+  });
+
+  updateWindow.loadFile(path.join(__dirname, '../renderer/update.html'));
+
+  updateWindow.on('closed', () => {
+    updateWindow = null;
+  });
+}
+
 function createTray() {
   const iconPath = path.join(__dirname, '../renderer/icon.png');
   const icon = nativeImage.createFromPath(iconPath);
@@ -134,7 +166,7 @@ function createMenu() {
       label: '文件',
       submenu: [
         { label: '设置', click: () => openSettingsWindow() },
-        { label: '检查更新', click: () => checkAndUpdateHermes() },
+        { label: '检查更新', click: () => openUpdateWindow() },
         { label: '查看日志', click: () => openLogWindow() },
         { type: 'separator' },
         { label: '刷新', accelerator: 'CmdOrCtrl+R', click: () => { if (mainWindow) mainWindow.reload(); } },
@@ -168,65 +200,6 @@ function createMenu() {
   ];
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-}
-
-async function checkAndUpdateHermes() {
-  showWindow();
-
-  const result = await dialog.showMessageBox(mainWindow, {
-    type: 'question',
-    buttons: ['检查更新', '取消'],
-    title: '检查HermesWebUI更新',
-    message: '将检查GitHub最新版本，是否继续？'
-  });
-
-  if (result.response !== 0) {
-    return;
-  }
-
-  openLogWindow();
-  getLatestReleaseInfo(async (err, latest) => {
-    if (err) {
-      dialog.showErrorBox(mainWindow, '检查更新失败', `无法获取最新版本信息: ${err.message}`);
-      return;
-    }
-
-    // 获取当前版本
-    let currentVersion = 'unknown';
-    try {
-      const versionPath = path.join(getHermesPath(), 'VERSION');
-      if (fs.existsSync(versionPath)) {
-        currentVersion = (await fs.promises.readFile(versionPath, 'utf8')).trim();
-      }
-    } catch (e) {
-      currentVersion = 'unknown';
-    }
-
-    sendLog(`Current version: ${currentVersion}, latest version: ${latest.version}`, 'info');
-
-    if (currentVersion === latest.version) {
-      dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        title: '已经是最新版本',
-        message: `当前版本: ${currentVersion}\n最新版本: ${latest.version}\n无需更新。`
-      });
-      return;
-    }
-
-    const confirm = await dialog.showMessageBox(mainWindow, {
-      type: 'question',
-      buttons: ['更新', '取消'],
-      title: '发现新版本',
-      message: `当前版本: ${currentVersion}\n最新版本: ${latest.version}\n是否下载并安装最新版本？`
-    });
-
-    if (confirm.response !== 0) {
-      return;
-    }
-
-    const installPath = path.join(os.homedir(), '.hermes', 'hermes-webui');
-    await downloadAndInstallHermes(latest.zipUrl, latest.version, installPath, dialog, mainWindow, sendLog);
-  });
 }
 
 function registerShortcuts() {
@@ -269,14 +242,17 @@ function checkHermesRunning(callback) {
     method: 'GET',
     timeout: 3000
   };
-  
-  http.get(options, (res) => {
+
+  const req = http.get(options, (res) => {
+    res.resume();
     callback(res.statusCode === 200);
   });
 
-  options.timeout = () => {
+  req.on('error', () => callback(false));
+  req.on('timeout', () => {
+    req.destroy();
     callback(false);
-  };
+  });
 }
 
 function startHermes(callback) {
@@ -311,8 +287,8 @@ function stopHermes() {
 
 function sendLog(message, type = 'info') {
   console.log('[Hermes]', message);
-  if (module.exports.installLogs) {
-    module.exports.installLogs.push({ message, type });
+  if (installLogs) {
+    installLogs.push({ message, type });
   }
   if (logWindow && !logWindow.isDestroyed()) {
     logWindow.webContents.send('new-log', { message, type });
@@ -320,21 +296,40 @@ function sendLog(message, type = 'info') {
   if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
     mainWindow.webContents.send('install-log', { message, type });
   }
+  if (updateWindow && !updateWindow.isDestroyed()) {
+    updateWindow.webContents.send('install-log', { message, type });
+  }
+}
+
+function sendProgress(payload) {
+  if (logWindow && !logWindow.isDestroyed()) {
+    logWindow.webContents.send('install-progress', payload);
+  }
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+    mainWindow.webContents.send('install-progress', payload);
+  }
+  if (updateWindow && !updateWindow.isDestroyed()) {
+    updateWindow.webContents.send('install-progress', payload);
+  }
 }
 
 module.exports = {
   createWindow,
   openSettingsWindow,
   openLogWindow,
+  openUpdateWindow,
   createTray,
   createMenu,
   registerShortcuts,
   showWindow,
   sendLog,
-  get installLogs() {
-    return module.exports.installLogs;
-  },
+  sendProgress,
+  getMainWindow: () => mainWindow,
+  checkHermesRunning,
+  startHermes,
+  stopHermes,
+  installLogs,
   clearInstallLogs() {
-    module.exports.installLogs = [];
+    installLogs = [];
   }
 };

@@ -27,6 +27,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     clear: () => ipcRenderer.invoke('log-clear'),
     onNewLog: (callback) => {
       ipcRenderer.on('new-log', callback);
+    },
+    onInstallProgress: (callback) => {
+      ipcRenderer.on('install-progress', callback);
     }
   },
   config: {
@@ -52,6 +55,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   shell: {
     openExternal: (url) => ipcRenderer.invoke('shell-open-external', url)
+  },
+  update: {
+    check: () => ipcRenderer.invoke('update-check'),
+    download: () => ipcRenderer.invoke('update-download'),
+    restart: () => ipcRenderer.invoke('update-restart'),
+    onProgress: (callback) => {
+      ipcRenderer.on('install-progress', callback);
+    },
+    onLog: (callback) => {
+      ipcRenderer.on('install-log', callback);
+    }
   },
   clipboard: {
     writeText: (text) => ipcRenderer.invoke('clipboard-write-text', text),

@@ -175,6 +175,15 @@
       width: 0%;
       transition: width 0.3s;
     }
+    .progress-fill.indeterminate {
+      width: 40% !important;
+      transition: none;
+      animation: indeterminate 1.2s infinite ease-in-out;
+    }
+    @keyframes indeterminate {
+      0% { margin-left: -40%; }
+      100% { margin-left: 100%; }
+    }
     .progress-text {
       margin-top: 8px;
       font-size: 13px;
@@ -415,15 +424,24 @@
       saveBtn.disabled = true;
       errorMsg.classList.remove('show');
       progressContainer.classList.add('show');
+      progressFill.classList.remove('indeterminate');
       progressFill.style.width = '0%';
       progressText.textContent = i18n[currentLang].downloading;
 
       // Listen for progress updates BEFORE starting install
-      const progressHandler = (progress) => {
-        progressFill.style.width = progress + '%';
-        progressText.textContent = i18n[currentLang].downloadProgress + progress + '%';
+      const progressHandler = (event, payload) => {
+        if (!payload || typeof payload !== 'object') return;
+        if (payload.indeterminate) {
+          progressFill.classList.add('indeterminate');
+          const kb = Math.round(payload.receivedBytes / 1024);
+          progressText.textContent = i18n[currentLang].downloadProgress + kb + ' KB';
+        } else {
+          progressFill.classList.remove('indeterminate');
+          progressFill.style.width = payload.progress + '%';
+          progressText.textContent = i18n[currentLang].downloadProgress + payload.progress + '%';
+        }
       };
-      const logHandler = (data) => {
+      const logHandler = (event, data) => {
         // logs are in separate window now
       };
       window.electronAPI.config.onInstallProgress(progressHandler);
@@ -436,12 +454,13 @@
       window.electronAPI.config.removeInstallLogListener(logHandler);
 
       if (result.success) {
+        progressFill.classList.remove('indeterminate');
+        progressFill.style.width = '100%';
         progressText.textContent = i18n[currentLang].installSuccess;
         hermesPathInput.value = result.installPath;
 
-        // Check if path is valid
-        const configResult = await window.electronAPI.config.check();
-        updateStatus(configResult.hermesPathValid);
+        // Install success guarantees start.sh is present and path is saved
+        updateStatus(true);
 
         // Auto launch after short delay
         setTimeout(async () => {

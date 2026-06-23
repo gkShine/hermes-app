@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;">
+  <title>Hermes App - Update</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; width: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #eee;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+    }
+    .container {
+      width: 100%;
+      max-width: 420px;
+      text-align: center;
+    }
+    .state { display: none; }
+    .state.active { display: block; }
+    h2 { font-size: 20px; margin-bottom: 12px; }
+    p { font-size: 14px; color: #aaa; line-height: 1.6; margin-bottom: 8px; }
+    .version { color: #66ccff; font-weight: 600; }
+
+    .btn-row {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+      margin-top: 28px;
+    }
+    button {
+      padding: 10px 22px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.1);
+      color: #ccc;
+    }
+    button:hover { background: rgba(255, 255, 255, 0.15); }
+    button.primary {
+      background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
+      color: #002;
+      border: none;
+      font-weight: 600;
+    }
+
+    /* Spinner */
+    .spinner {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 24px;
+      border: 4px solid rgba(255, 255, 255, 0.15);
+      border-top-color: #00d4ff;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Status icon */
+    .icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 20px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 30px;
+    }
+    .icon.success { background: rgba(102, 255, 153, 0.15); color: #66ff99; }
+    .icon.error { background: rgba(255, 102, 102, 0.15); color: #ff6666; }
+
+    /* Progress bar */
+    .progress-track {
+      height: 10px;
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+      margin-top: 20px;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 5px;
+      background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
+      transition: width 0.2s ease;
+    }
+    .progress-fill.indeterminate {
+      width: 40% !important;
+      transition: none;
+      animation: indeterminate 1.2s infinite ease-in-out;
+    }
+    @keyframes indeterminate {
+      0% { margin-left: -40%; }
+      100% { margin-left: 100%; }
+    }
+    .err-detail {
+      color: #ff8888;
+      font-size: 12px;
+      word-break: break-all;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div id="state-confirm" class="state active">
+      <h2 data-i18n="confirmTitle">检查更新</h2>
+      <p data-i18n="confirmText">将检查 GitHub 最新版本，是否继续？</p>
+      <div class="btn-row">
+        <button id="cancelBtn" data-i18n="cancel">取消</button>
+        <button id="checkBtn" class="primary" data-i18n="check">检查更新</button>
+      </div>
+    </div>
+
+    <div id="state-checking" class="state">
+      <div class="spinner"></div>
+      <p data-i18n="checking">正在检查更新...</p>
+    </div>
+
+    <div id="state-latest" class="state">
+      <div class="icon success">✓</div>
+      <h2 data-i18n="latestTitle">已经是最新版本</h2>
+      <p><span data-i18n="currentVersion">当前版本</span>: <span id="latestVer" class="version"></span></p>
+      <div class="btn-row">
+        <button id="latestCloseBtn" class="primary" data-i18n="close">关闭</button>
+      </div>
+    </div>
+
+    <div id="state-downloading" class="state">
+      <h2 data-i18n="updatingTitle">正在更新</h2>
+      <p id="dlText" data-i18n="downloading">正在下载...</p>
+      <div class="progress-track">
+        <div id="progressFill" class="progress-fill indeterminate"></div>
+      </div>
+    </div>
+
+    <div id="state-complete" class="state">
+      <div class="icon success">✓</div>
+      <h2 data-i18n="completeTitle">更新完成</h2>
+      <p><span data-i18n="updatedTo">已更新到</span> <span id="completeVer" class="version"></span></p>
+      <div class="btn-row">
+        <button id="restartBtn" class="primary" data-i18n="restart">立即重启</button>
+      </div>
+    </div>
+
+    <div id="state-error" class="state">
+      <div class="icon error">✗</div>
+      <h2 data-i18n="errorTitle">更新失败</h2>
+      <p id="errText" class="err-detail"></p>
+      <div class="btn-row">
+        <button id="errorCloseBtn" class="primary" data-i18n="close">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const i18n = {
+      en: {
+        confirmTitle: 'Check for Updates', confirmText: 'This will check GitHub for the latest version. Continue?',
+        cancel: 'Cancel', check: 'Check', checking: 'Checking for updates...',
+        latestTitle: 'You are up to date', currentVersion: 'Current version', close: 'Close',
+        updatingTitle: 'Updating', downloading: 'Downloading...', extracting: 'Extracting...',
+        completeTitle: 'Update complete', updatedTo: 'Updated to', restart: 'Restart now',
+        errorTitle: 'Update failed'
+      },
+      zh: {
+        confirmTitle: '检查更新', confirmText: '将检查 GitHub 最新版本，是否继续？',
+        cancel: '取消', check: '检查更新', checking: '正在检查更新...',
+        latestTitle: '已经是最新版本', currentVersion: '当前版本', close: '关闭',
+        updatingTitle: '正在更新', downloading: '正在下载...', extracting: '正在解压...',
+        completeTitle: '更新完成', updatedTo: '已更新到', restart: '立即重启',
+        errorTitle: '更新失败'
+      }
+    };
+
+    const lang = navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en';
+    const t = i18n[lang];
+
+    document.querySelectorAll('[data-i18n]').forEach((el) => {
+      el.textContent = t[el.getAttribute('data-i18n')];
+    });
+
+    const progressFill = document.getElementById('progressFill');
+    const dlText = document.getElementById('dlText');
+
+    function showState(name) {
+      document.querySelectorAll('.state').forEach((el) => el.classList.remove('active'));
+      document.getElementById('state-' + name).classList.add('active');
+    }
+
+    function showError(msg) {
+      document.getElementById('errText').textContent = msg || '';
+      showState('error');
+    }
+
+    document.getElementById('cancelBtn').addEventListener('click', () => window.close());
+    document.getElementById('latestCloseBtn').addEventListener('click', () => window.close());
+    document.getElementById('errorCloseBtn').addEventListener('click', () => window.close());
+
+    document.getElementById('checkBtn').addEventListener('click', async () => {
+      showState('checking');
+      const res = await window.electronAPI.update.check();
+      if (!res.ok) {
+        showError(res.error);
+        return;
+      }
+      if (!res.hasUpdate) {
+        document.getElementById('latestVer').textContent = res.currentVersion;
+        showState('latest');
+        return;
+      }
+      // New version available -> download automatically
+      progressFill.classList.add('indeterminate');
+      progressFill.style.width = '0%';
+      dlText.textContent = t.downloading;
+      showState('downloading');
+
+      const dl = await window.electronAPI.update.download();
+      if (!dl.success) {
+        showError(dl.error || t.errorTitle);
+        return;
+      }
+      document.getElementById('completeVer').textContent = 'v' + dl.version;
+      showState('complete');
+    });
+
+    document.getElementById('restartBtn').addEventListener('click', async () => {
+      await window.electronAPI.update.restart();
+      window.close();
+    });
+
+    // Download progress
+    window.electronAPI.update.onProgress((event, payload) => {
+      if (payload.indeterminate) {
+        progressFill.classList.add('indeterminate');
+        const kb = Math.round((payload.receivedBytes || 0) / 1024);
+        dlText.textContent = `${t.downloading} ${kb}KB`;
+      } else {
+        progressFill.classList.remove('indeterminate');
+        progressFill.style.width = payload.progress + '%';
+        dlText.textContent = `${t.downloading} ${payload.progress}%`;
+      }
+    });
+
+    // Switch to extracting state based on log messages
+    window.electronAPI.update.onLog((event, entry) => {
+      const msg = (entry && entry.message) || '';
+      if (msg.includes('extracting')) {
+        progressFill.classList.add('indeterminate');
+        dlText.textContent = t.extracting;
+      }
+    });
+  </script>
+</body>
+</html>

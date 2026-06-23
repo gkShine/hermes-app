@@ -39,8 +39,8 @@ function checkHermesPathValid() {
   return fs.existsSync(scriptPath);
 }
 
-function checkHermesPathValidForSettings(path) {
-  const scriptPath = path.join(path, 'start.sh');
+function checkHermesPathValidForSettings(hermesPath) {
+  const scriptPath = path.join(hermesPath, 'start.sh');
   return fs.existsSync(scriptPath);
 }
 

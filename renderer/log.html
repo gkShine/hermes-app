@@ -108,11 +108,53 @@
       background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
       color: #000;
     }
+    .progress-bar {
+      display: none;
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .progress-bar.show {
+      display: block;
+    }
+    .progress-text {
+      font-size: 12px;
+      color: #66ccff;
+      margin-bottom: 6px;
+    }
+    .progress-track {
+      height: 8px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.1);
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      border-radius: 4px;
+      background: linear-gradient(135deg, #00d4ff 0%, #0099cc 100%);
+      transition: width 0.2s ease;
+    }
+    .progress-fill.indeterminate {
+      width: 40% !important;
+      transition: none;
+      animation: indeterminate 1.2s infinite ease-in-out;
+    }
+    @keyframes indeterminate {
+      0% { margin-left: -40%; }
+      100% { margin-left: 100%; }
+    }
   </style>
 </head>
 <body>
   <div class="top-bar">
     <button id="closeBtn">Close</button>
+  </div>
+
+  <div id="progressBar" class="progress-bar">
+    <div id="progressText" class="progress-text"></div>
+    <div class="progress-track">
+      <div id="progressFill" class="progress-fill"></div>
+    </div>
   </div>
 
   <div class="log-container">
@@ -131,13 +173,19 @@
         close: 'Close',
         empty: 'No log entries yet',
         clear: 'Clear Log',
-        copy: 'Copy Log'
+        copy: 'Copy Log',
+        downloading: 'Downloading',
+        extracting: 'Extracting...',
+        done: 'Update complete'
       },
       zh: {
         close: '关闭',
         empty: '暂无日志',
         clear: '清空日志',
-        copy: '复制日志'
+        copy: '复制日志',
+        downloading: '下载中',
+        extracting: '解压中...',
+        done: '更新完成'
       }
     };
 
@@ -149,6 +197,9 @@
     const closeBtn = document.getElementById('closeBtn');
     const clearBtn = document.getElementById('clearBtn');
     const copyBtn = document.getElementById('copyBtn');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const progressFill = document.getElementById('progressFill');
 
     function setLang(lang) {
       currentLang = lang;
@@ -209,8 +260,37 @@
     }
 
     // Listen for new logs
-    window.electronAPI.log.onNewLog((entry) => {
+    window.electronAPI.log.onNewLog((event, entry) => {
       addLogEntry(entry);
+      updateProgressFromLog(entry);
+    });
+
+    function updateProgressFromLog(entry) {
+      const msg = (entry && entry.message) || '';
+      if (msg.includes('extracting')) {
+        progressBar.classList.add('show');
+        progressFill.classList.add('indeterminate');
+        progressText.textContent = i18n[currentLang].extracting;
+      } else if (msg.includes('Update complete')) {
+        progressBar.classList.add('show');
+        progressFill.classList.remove('indeterminate');
+        progressFill.style.width = '100%';
+        progressText.textContent = i18n[currentLang].done;
+      }
+    }
+
+    // Listen for download progress
+    window.electronAPI.log.onInstallProgress((event, payload) => {
+      progressBar.classList.add('show');
+      if (payload.indeterminate) {
+        progressFill.classList.add('indeterminate');
+        const kb = Math.round((payload.receivedBytes || 0) / 1024);
+        progressText.textContent = `${i18n[currentLang].downloading} ${kb}KB`;
+      } else {
+        progressFill.classList.remove('indeterminate');
+        progressFill.style.width = payload.progress + '%';
+        progressText.textContent = `${i18n[currentLang].downloading} ${payload.progress}%`;
+      }
     });
 
     loadLogs();

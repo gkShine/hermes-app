@@ -9,6 +9,7 @@ directories:
 files:
   - main.js
   - preload.js
+  - modules/**/*
   - renderer/**/*
 
 asar: true

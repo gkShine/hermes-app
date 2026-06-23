@@ -1,11 +1,19 @@
 const https = require('https');
+const { exec } = require('child_process');
 const HttpsProxyAgent = require('https-proxy-agent');
 const { getProxyMode, getGithubProxy, getHermesPath } = require('./config');
+function sendLog(...args) {
+  return require('./ui').sendLog(...args);
+}
+
+function sendProgress(payload) {
+  return require('./ui').sendProgress(payload);
+}
 
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36';
 
 // 获取最新版本信息
-function getLatestReleaseInfo(callback, sendLog) {
+function getLatestReleaseInfo(callback) {
   const apiUrl = 'https://api.github.com/repos/nesquena/hermes-webui/releases/latest';
   const mode = getProxyMode();
   const proxy = getGithubProxy();
@@ -25,10 +33,7 @@ function getLatestReleaseInfo(callback, sendLog) {
     path: urlObj.pathname + urlObj.search,
     method: 'GET',
     headers: {
-      'User-Agent': USER_AGENT,
-      'Accept': '*/*',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Connection': 'keep-alive'
+      'User-Agent': USER_AGENT
     },
     timeout: 10000
   };
@@ -84,191 +89,220 @@ function getLatestReleaseInfo(callback, sendLog) {
   });
 }
 
-// 下载安装包
-async function downloadAndInstallHermes(zipUrl, version, installPath, dialog, mainWindow, sendLog) {
-  const mode = getProxyMode();
-  const proxy = getGithubProxy();
-  let downloadUrl = zipUrl;
+// 下载安装包，返回 { success: true, installPath, version } 或 { success: false, error }
+function downloadAndInstallHermes(zipUrl, version, installPath, dialog, mainWindow, sendLog) {
+  return new Promise((resolve) => {
+    const mode = getProxyMode();
+    const proxy = getGithubProxy();
+    let downloadUrl = zipUrl;
 
-  if (mode === 'reverse') {
-    downloadUrl = proxy + zipUrl;
-  }
-
-  sendLog(`Starting download to version: ${version}`, 'info');
-  sendLog(`Download url: ${downloadUrl}`, 'info');
-
-  const hermesDir = require('path').dirname(installPath);
-  const fs = require('fs');
-  const { spawn } = require('child_process');
-
-  try {
-    await fs.promises.mkdir(hermesDir, { recursive: true });
-    sendLog(`Created directory: ${hermesDir}`, 'success');
-  } catch (err) {
-    if (err.code !== 'EEXIST') {
-      const msg = `Failed to create directory: ${err.message}`;
-      sendLog(msg, 'error');
-      dialog.showErrorBox(mainWindow, '安装失败', msg);
-      return;
-    }
-  }
-
-  // Stop hermes if running
-  exec('pkill -f "python.*server.py" || true', (err) => {
-    if (err) sendLog(`pkill error: ${err.message}`, 'error');
-    else sendLog('hermes-webui stopped', 'success');
-  });
-
-  // Remove existing
-  try {
-    sendLog(`Removing old directory: ${installPath}`, 'info');
-    await fs.promises.rm(installPath, { recursive: true, force: true });
-    sendLog('Removed old directory successfully', 'success');
-  } catch (err) {
-    sendLog(`Could not remove existing folder: ${err.message}`, 'error');
-  }
-
-  const zipPath = require('path').join(hermesDir, 'temp.tar.gz');
-  const file = fs.createWriteStream(zipPath);
-  let totalBytes = 0;
-  let receivedBytes = 0;
-
-  const downloadUrlObj = new URL(downloadUrl);
-  let requestOptions = {
-    hostname: downloadUrlObj.hostname,
-    path: downloadUrlObj.pathname + downloadUrlObj.search,
-    method: 'GET',
-    headers: {
-      'User-Agent': USER_AGENT,
-      'Accept': '*/*',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Connection': 'keep-alive'
-    }
-  };
-
-  if (mode === 'http' && proxy) {
-    try {
-      const agent = new HttpsProxyAgent(proxy);
-      requestOptions.agent = agent;
-      sendLog(`Added HttpsProxyAgent for download: ${proxy}`, 'info');
-    } catch (err) {
-      sendLog(`Failed to create proxy agent for download: ${err.message}`, 'error');
-      dialog.showErrorBox(mainWindow, '代理错误', `无法创建代理: ${err.message}`);
-      return;
-    }
-  }
-
-  sendLog(`Starting download, final request URL: ${downloadUrl}`, 'info');
-  sendLog(`Download request headers: ${JSON.stringify(requestOptions.headers)}`, 'info');
-
-  https.get(requestOptions, (response) => {
-    sendLog(`Download response status: ${response.statusCode}`, 'info');
-    if (response.statusCode !== 200) {
-      file.close();
-      fs.unlinkSync(zipPath);
-      const msg = `Download failed with status: ${response.statusCode}`;
-      sendLog(msg, 'error');
-      dialog.showErrorBox(mainWindow, '下载失败', msg);
-      return;
+    if (mode === 'reverse') {
+      downloadUrl = proxy + zipUrl;
     }
 
-    sendLog(`Starting download, total size: ${Math.round(parseInt(response.headers['content-length'], 10) / 1024 / 1024)}MB`, 'info');
-    totalBytes = parseInt(response.headers['content-length'], 10);
+    sendLog(`Starting download to version: ${version}`, 'info');
+    sendLog(`Download url: ${downloadUrl}`, 'info');
 
-    response.on('data', (chunk) => {
-      receivedBytes += chunk.length;
-      if (totalBytes && mainWindow) {
-        const progress = Math.round((receivedBytes / totalBytes) * 100);
-        if (mainWindow) {
-          mainWindow.webContents.send('install-progress', progress);
+    const hermesDir = require('path').dirname(installPath);
+    const fs = require('fs');
+    const { spawn } = require('child_process');
+
+    const run = async () => {
+      try {
+        await fs.promises.mkdir(hermesDir, { recursive: true });
+        sendLog(`Created directory: ${hermesDir}`, 'success');
+      } catch (err) {
+        if (err.code !== 'EEXIST') {
+          const msg = `Failed to create directory: ${err.message}`;
+          sendLog(msg, 'error');
+          resolve({ success: false, error: msg });
+          return;
         }
       }
-      sendLog(`Received ${Math.round(receivedBytes / 1024)}KB / ${Math.round(totalBytes / 1024)}KB`, 'info');
-    });
 
-    response.pipe(file);
+      // Stop hermes if running
+      exec('pkill -f "python.*server.py" || true', (err) => {
+        if (err) sendLog(`pkill error: ${err.message}`, 'error');
+        else sendLog('hermes-webui stopped', 'success');
+      });
 
-    file.on('finish', async () => {
-      file.close();
-      sendLog('Download complete, extracting...', 'info');
-
+      // Remove existing
       try {
-        const extractor = spawn('tar', ['-xzf', zipPath, '-C', hermesDir]);
-
-        extractor.on('close', async (code) => {
-          await fs.promises.unlink(zipPath);
-          sendLog(`Extraction complete with code: ${code}`, code === 0 ? 'success' : 'error');
-
-          if (code !== 0) {
-            dialog.showErrorBox(mainWindow, '安装失败', `Extraction failed with code: ${code}`);
-            return;
-          }
-
-          // Find extracted folder
-          const files = await fs.promises.readdir(hermesDir);
-          let extractedDir = null;
-          for (const f of files) {
-            if (f.startsWith('nesquena-hermes-webui-')) {
-              extractedDir = require('path').join(hermesDir, f);
-              break;
-            }
-          }
-
-          if (!extractedDir) {
-            const msg = 'Cannot find extracted directory';
-            sendLog(msg, 'error');
-            dialog.showErrorBox(mainWindow, '安装失败', msg);
-            return;
-          }
-
-          sendLog(`Found extracted directory: ${extractedDir}`, 'info');
-
-          // Rename to hermes-webui
-          try {
-            await fs.promises.rename(extractedDir, installPath);
-            sendLog(`Renamed to ${installPath}`, 'success');
-          } catch (err) {
-            sendLog(`Rename error: ${err.message}, trying replace`, 'warning');
-            await fs.promises.rm(installPath, { recursive: true, force: true });
-            await fs.promises.rename(extractedDir, installPath);
-          }
-
-          // Save version
-          await fs.promises.writeFile(require('path').join(installPath, 'VERSION'), version);
-          sendLog(`Saved version file: ${version}`, 'success');
-
-          sendLog('Update complete!', 'success');
-          dialog.showMessageBox(mainWindow, {
-            type: 'info',
-            title: '更新完成',
-            message: `HermesWebUI 已更新到版本 ${version}\n将重新启动`
-          });
-
-          // Restart hermes
-          startHermes(() => {
-            sendLog('Restart complete', 'success');
-            if (mainWindow) {
-              mainWindow.loadURL(process.env.HERMES_WEBUI_URL || 'http://localhost:8787');
-            }
-          });
-        });
-      } catch (e) {
-
+        sendLog(`Removing old directory: ${installPath}`, 'info');
+        await fs.promises.rm(installPath, { recursive: true, force: true });
+        sendLog('Removed old directory successfully', 'success');
+      } catch (err) {
+        sendLog(`Could not remove existing folder: ${err.message}`, 'error');
       }
 
-      extractor.on('error', async (err) => {
-        await fs.promises.unlink(zipPath);
-        const msg = `Extract error: ${err.message}`;
-        sendLog(msg, 'error');
-        dialog.showErrorBox(mainWindow, '解压错误', msg);
-      });
-  });
-}).on('error', async (err) => {
-    file.close();
-    await fs.promises.unlink(zipPath);
-    const msg = `Download error: ${err.message}`;
-    sendLog(msg, 'error');
-    dialog.showErrorBox(mainWindow, '下载错误', msg);
+      const zipPath = require('path').join(hermesDir, 'temp.tar.gz');
+      const file = fs.createWriteStream(zipPath);
+      let totalBytes = 0;
+      let receivedBytes = 0;
+
+      const buildOptions = (urlStr) => {
+        const u = new URL(urlStr);
+        const opts = {
+          hostname: u.hostname,
+          path: u.pathname + u.search,
+          method: 'GET',
+          headers: {
+            'User-Agent': USER_AGENT,
+            'Accept': '*/*',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive'
+          }
+        };
+        if (mode === 'http' && proxy) {
+          opts.agent = new HttpsProxyAgent(proxy);
+          sendLog(`Added HttpsProxyAgent for download: ${proxy}`, 'info');
+        }
+        return opts;
+      };
+
+      const REDIRECT_CODES = [301, 302, 303, 307, 308];
+      const MAX_REDIRECTS = 5;
+
+      const doRequest = (urlStr, redirectsLeft) => {
+        let requestOptions;
+        try {
+          requestOptions = buildOptions(urlStr);
+        } catch (err) {
+          const msg = `Failed to build download request: ${err.message}`;
+          sendLog(msg, 'error');
+          resolve({ success: false, error: msg });
+          return;
+        }
+
+        sendLog(`Requesting download URL: ${urlStr}`, 'info');
+
+        https.get(requestOptions, (response) => {
+          sendLog(`Download response status: ${response.statusCode}`, 'info');
+
+          // Follow redirects (e.g. GitHub tarball_url -> codeload.github.com)
+          if (REDIRECT_CODES.includes(response.statusCode) && response.headers.location) {
+            response.resume(); // drain so the socket can be reused
+            if (redirectsLeft <= 0) {
+              const msg = 'Too many redirects while downloading';
+              sendLog(msg, 'error');
+              file.close();
+              fs.unlinkSync(zipPath);
+              resolve({ success: false, error: msg });
+              return;
+            }
+            const nextUrl = new URL(response.headers.location, urlStr).toString();
+            sendLog(`Redirect ${response.statusCode} -> ${nextUrl}`, 'info');
+            doRequest(nextUrl, redirectsLeft - 1);
+            return;
+          }
+
+          if (response.statusCode !== 200) {
+            file.close();
+            fs.unlinkSync(zipPath);
+            const msg = `Download failed with status: ${response.statusCode}`;
+            sendLog(msg, 'error');
+            resolve({ success: false, error: msg });
+            return;
+          }
+
+          const contentLength = parseInt(response.headers['content-length'], 10);
+          totalBytes = Number.isFinite(contentLength) ? contentLength : 0;
+          if (totalBytes) {
+            sendLog(`Starting download, total size: ${Math.round(totalBytes / 1024 / 1024)}MB`, 'info');
+          } else {
+            sendLog('Starting download, total size: unknown (no Content-Length)', 'info');
+          }
+
+          response.on('data', (chunk) => {
+            receivedBytes += chunk.length;
+            if (totalBytes) {
+              const progress = Math.round((receivedBytes / totalBytes) * 100);
+              sendProgress({ indeterminate: false, progress, receivedBytes, totalBytes });
+            } else {
+              sendProgress({ indeterminate: true, receivedBytes });
+            }
+            if (totalBytes) {
+              sendLog(`Received ${Math.round(receivedBytes / 1024)}KB / ${Math.round(totalBytes / 1024)}KB`, 'info');
+            } else {
+              sendLog(`Received ${Math.round(receivedBytes / 1024)}KB`, 'info');
+            }
+          });
+
+          response.pipe(file);
+
+          file.on('finish', async () => {
+            file.close();
+            sendLog('Download complete, extracting...', 'info');
+
+            const extractor = spawn('tar', ['-xzf', zipPath, '-C', hermesDir]);
+
+            extractor.on('close', async (code) => {
+              await fs.promises.unlink(zipPath);
+              sendLog(`Extraction complete with code: ${code}`, code === 0 ? 'success' : 'error');
+
+              if (code !== 0) {
+                resolve({ success: false, error: `Extraction failed with code: ${code}` });
+                return;
+              }
+
+              // Find extracted folder
+              const files = await fs.promises.readdir(hermesDir);
+              let extractedDir = null;
+              for (const f of files) {
+                if (f.startsWith('nesquena-hermes-webui-')) {
+                  extractedDir = require('path').join(hermesDir, f);
+                  break;
+                }
+              }
+
+              if (!extractedDir) {
+                const msg = 'Cannot find extracted directory';
+                sendLog(msg, 'error');
+                resolve({ success: false, error: msg });
+                return;
+              }
+
+              sendLog(`Found extracted directory: ${extractedDir}`, 'info');
+
+              // Rename to hermes-webui
+              try {
+                await fs.promises.rename(extractedDir, installPath);
+                sendLog(`Renamed to ${installPath}`, 'success');
+              } catch (err) {
+                sendLog(`Rename error: ${err.message}, trying replace`, 'warning');
+                await fs.promises.rm(installPath, { recursive: true, force: true });
+                await fs.promises.rename(extractedDir, installPath);
+              }
+
+              // Save version
+              await fs.promises.writeFile(require('path').join(installPath, 'VERSION'), version);
+              sendLog(`Saved version file: ${version}`, 'success');
+
+              sendLog('Update complete!', 'success');
+              resolve({ success: true, installPath, version });
+            });
+
+            extractor.on('error', async (err) => {
+              await fs.promises.unlink(zipPath).catch(() => {});
+              const msg = `Extract error: ${err.message}`;
+              sendLog(msg, 'error');
+              resolve({ success: false, error: msg });
+            });
+          });
+        }).on('error', async (err) => {
+          file.close();
+          await fs.promises.unlink(zipPath).catch(() => {});
+          const msg = `Download error: ${err.message}`;
+          sendLog(msg, 'error');
+          resolve({ success: false, error: msg });
+        });
+      };
+
+      sendLog(`Starting download, final request URL: ${downloadUrl}`, 'info');
+      doRequest(downloadUrl, MAX_REDIRECTS);
+    };
+
+    run();
   });
 }
 

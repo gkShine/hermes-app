@@ -272,7 +272,8 @@
       const config = await window.electronAPI.settings.get();
       if (config.hermesPath) {
         hermesPathInput.value = config.hermesPath;
-        updateStatus(config.hermesPathValid);
+        const result = await window.electronAPI.settings.checkPath(config.hermesPath);
+        updateStatus(result.valid);
       }
       if (config.proxyMode) {
         document.querySelector(`input[value="${config.proxyMode}"]`).checked = true;
