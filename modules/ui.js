@@ -176,6 +176,20 @@ function createMenu() {
       ]
     },
     {
+      label: '编辑',
+      submenu: [
+        { label: '撤销', role: 'undo' },
+        { label: '重做', role: 'redo' },
+        { type: 'separator' },
+        { label: '剪切', role: 'cut' },
+        { label: '复制', role: 'copy' },
+        { label: '粘贴', role: 'paste' },
+        { label: '粘贴并匹配样式', role: 'pasteAndMatchStyle' },
+        { label: '删除', role: 'delete' },
+        { label: '全选', role: 'selectAll' }
+      ]
+    },
+    {
       label: '视图',
       submenu: [
         { label: '全屏', accelerator: 'F11', click: () => { if (mainWindow) mainWindow.setFullScreen(!mainWindow.isFullScreen()); } },
